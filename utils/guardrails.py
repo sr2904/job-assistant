@@ -19,7 +19,7 @@ INJECTION_PATTERNS = [
     r"override (your|all) (instructions|rules)",
 ]
 
-MAX_JD_LENGTH = 8000
+MAX_JD_LENGTH = 15000
 MAX_BACKGROUND_LENGTH = 5000
 MIN_LENGTH = 50
 

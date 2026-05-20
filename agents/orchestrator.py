@@ -1,6 +1,8 @@
 """
 Orchestrator - Full 9-Agent Pipeline
+Small delay after Researcher to avoid token rate limits
 """
+import time
 from agents.planner import PlannerAgent
 from agents.researcher import ResearcherAgent
 from agents.analyst import AnalystAgent
@@ -84,14 +86,17 @@ class Orchestrator:
         update("🔍 Researcher: Gathering company and role context...")
         try:
             research_raw = self.researcher.run(job_description=job_description)
-            shared_memory["research"], sec_result = self._security_check("Researcher", research_raw, update)
+            # Trim researcher output aggressively to avoid token limits downstream
+            research_trimmed = research_raw[:1500] if research_raw else "Research unavailable."
+            shared_memory["research"], sec_result = self._security_check("Researcher", research_trimmed, update)
             shared_memory["security_log"].append({"agent": "Researcher", **sec_result})
         except Exception as e:
             shared_memory["research"] = "Research unavailable."
             update("⚠️ Researcher failed, continuing.")
 
-        # Step 4: Analyst
+        # Small delay after researcher to let token rate limit reset
         update("🧠 Analyst: Analyzing your fit against the plan...")
+        time.sleep(15)
         try:
             analysis_raw = self.analyst.run(
                 job_description=job_description,
