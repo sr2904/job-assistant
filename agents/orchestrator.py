@@ -1,7 +1,8 @@
 """
 Orchestrator - Full 9-Agent Pipeline
-Optimized with parallelism for faster execution
+Optimized with parallelism + small pauses between phases to respect rate limits
 """
+import time
 from concurrent.futures import ThreadPoolExecutor
 from agents.planner import PlannerAgent
 from agents.researcher import ResearcherAgent
@@ -76,7 +77,6 @@ class Orchestrator:
         user_background = mask_pii(user_background)
 
         # ── Step 2: PARALLEL — Planner + Researcher ───────────────────────────
-        # These two agents don't depend on each other so they run simultaneously
         update("🗺️ Planner + 🔍 Researcher: Running in parallel...")
         try:
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -88,11 +88,9 @@ class Orchestrator:
                 plan_raw     = future_plan.result()
                 research_raw = future_research.result()
 
-            # Security scan Planner output
             shared_memory["plan"], sec_result = self._security_check("Planner", plan_raw, update)
             shared_memory["security_log"].append({"agent": "Planner", **sec_result})
 
-            # Trim research output aggressively to avoid token limits downstream
             research_trimmed = research_raw[:1500] if research_raw else "Research unavailable."
             shared_memory["research"], sec_result = self._security_check("Researcher", research_trimmed, update)
             shared_memory["security_log"].append({"agent": "Researcher", **sec_result})
@@ -103,8 +101,10 @@ class Orchestrator:
             shared_memory["research"] = shared_memory["research"] or "Research unavailable."
             update("⚠️ Planner/Researcher had issues, continuing.")
 
+        # Small pause to let token rate limit bucket refill before Analyst
+        time.sleep(10)
+
         # ── Step 3: SEQUENTIAL — Analyst ─────────────────────────────────────
-        # Needs both plan and research, so must run after Step 2
         update("🧠 Analyst: Analyzing your fit against the plan...")
         try:
             analysis_raw = self.analyst.run(
@@ -119,7 +119,6 @@ class Orchestrator:
             return {"error": "Analyst agent failed. Please try again."}
 
         # ── Step 4: PARALLEL — Match Analyzer + Writer ────────────────────────
-        # Both only need Analyst output — run simultaneously
         update("📊 Match Analyzer + ✍️ Writer: Running in parallel...")
         try:
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -179,7 +178,6 @@ class Orchestrator:
         shared_memory["final_output"] = shared_memory["draft"]
 
         # ── Step 6: PARALLEL — Interview Prep + Email Agent ───────────────────
-        # End-cap agents — neither depends on the other
         update("🎯 Interview Prep + 📧 Email Agent: Running in parallel...")
         try:
             with ThreadPoolExecutor(max_workers=2) as pool:
