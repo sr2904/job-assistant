@@ -281,7 +281,7 @@ if "result" in st.session_state:
 
         # ── Tabs ─────────────────────────────────────────────────────
         st.markdown("### 📋 Full Results")
-        tabs = st.tabs(["📝 Application", "🎯 Interview Prep", "📧 Follow-up Email",
+        tabs = st.tabs(["📝 Application", "🎯 Interview Prep",
                         "🗺️ Plan", "🔍 Research", "🧠 Analysis", "🔎 Critic Log", "🛡️ Security Log"])
 
         with tabs[0]:
@@ -318,27 +318,19 @@ if "result" in st.session_state:
             st.markdown(result.get("interview_prep", "Not available."))
 
         with tabs[2]:
-            st.markdown("#### 📧 Follow-up Email Draft")
-            email_content = result.get("email_draft", "Not available.")
-            st.markdown(email_content)
-            st.download_button("⬇️ Download Email", data=email_content,
-                file_name="followup_email.txt", mime="text/plain",
-                use_container_width=True, key="dl_email")
-
-        with tabs[3]:
             st.markdown("#### 🗺️ Planner Agent Strategy")
             st.markdown("*This is the plan all other agents followed*")
             st.markdown(result.get("plan", "Not available."))
 
-        with tabs[4]:
+        with tabs[3]:
             st.markdown("#### 🔍 Company & Role Research")
             st.markdown(result.get("research", "Not available."))
 
-        with tabs[5]:
+        with tabs[4]:
             st.markdown("#### 🧠 Fit Analysis")
             st.markdown(result.get("analysis", "Not available."))
 
-        with tabs[6]:
+        with tabs[5]:
             st.markdown("#### 🔎 Critic Agent Review Log")
             if result.get("critique_history"):
                 for i, critique in enumerate(result["critique_history"]):
@@ -359,7 +351,7 @@ if "result" in st.session_state:
             else:
                 st.info("No critique history available.")
 
-        with tabs[7]:
+        with tabs[6]:
             st.markdown("#### 🛡️ Security Agent Log")
             if result.get("security_log"):
                 for entry in result["security_log"]:
