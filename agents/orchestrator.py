@@ -102,7 +102,7 @@ class Orchestrator:
             update("⚠️ Planner/Researcher had issues, continuing.")
 
         # Small pause to let token rate limit bucket refill before Analyst
-        time.sleep(10)
+        time.sleep(15)
 
         # ── Step 3: SEQUENTIAL — Analyst ─────────────────────────────────────
         update("🧠 Analyst: Analyzing your fit against the plan...")
