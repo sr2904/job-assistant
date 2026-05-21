@@ -41,7 +41,7 @@ def CriticAgent():
                     return result
                 except json.JSONDecodeError:
                     if attempt == 1:
-                        return {"approved": True, "scores": {}, "feedback": "", "summary": "Parse error, passed by default."}
+                        return {"approved": False, "scores": {}, "feedback": "Critic returned malformed JSON. Please revise for clarity.", "summary": "Parse error — revision triggered."}
                 except Exception as e:
                     log_event("critic", f"Attempt {attempt+1} failed: {str(e)}")
                     if attempt == 1:

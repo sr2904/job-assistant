@@ -1,8 +1,8 @@
 """
 Orchestrator - Full 9-Agent Pipeline
-Small delay after Researcher to avoid token rate limits
+Optimized with parallelism for faster execution
 """
-import time
+from concurrent.futures import ThreadPoolExecutor
 from agents.planner import PlannerAgent
 from agents.researcher import ResearcherAgent
 from agents.analyst import AnalystAgent
@@ -12,7 +12,7 @@ from agents.security import SecurityAgent
 from agents.interview_prep import InterviewPrepAgent
 from agents.email_draft import EmailDraftAgent
 from agents.match_analyzer import MatchAnalyzerAgent
-from utils.guardrails import validate_input
+from utils.guardrails import validate_input, mask_pii
 from utils.logger import log_event
 
 
@@ -66,37 +66,46 @@ class Orchestrator:
             "errors":           []
         }
 
-        # Step 1: Guardrails
+        # ── Step 1: Guardrails ────────────────────────────────────────────────
         update("🔒 Validating inputs...")
         valid, reason = validate_input(job_description, user_background)
         if not valid:
             return {"error": reason}
 
-        # Step 2: Planner
-        update("🗺️ Planner: Decomposing task and creating strategy...")
+        # Mask PII in user background before any LLM sees it
+        user_background = mask_pii(user_background)
+
+        # ── Step 2: PARALLEL — Planner + Researcher ───────────────────────────
+        # These two agents don't depend on each other so they run simultaneously
+        update("🗺️ Planner + 🔍 Researcher: Running in parallel...")
         try:
-            plan_raw = self.planner.run(job_description=job_description, user_background=user_background)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                future_plan     = pool.submit(self.planner.run,
+                                              job_description=job_description,
+                                              user_background=user_background)
+                future_research = pool.submit(self.researcher.run,
+                                              job_description=job_description)
+                plan_raw     = future_plan.result()
+                research_raw = future_research.result()
+
+            # Security scan Planner output
             shared_memory["plan"], sec_result = self._security_check("Planner", plan_raw, update)
             shared_memory["security_log"].append({"agent": "Planner", **sec_result})
-        except Exception as e:
-            shared_memory["plan"] = "No plan available."
-            update("⚠️ Planner failed, continuing.")
 
-        # Step 3: Researcher
-        update("🔍 Researcher: Gathering company and role context...")
-        try:
-            research_raw = self.researcher.run(job_description=job_description)
-            # Trim researcher output aggressively to avoid token limits downstream
+            # Trim research output aggressively to avoid token limits downstream
             research_trimmed = research_raw[:1500] if research_raw else "Research unavailable."
             shared_memory["research"], sec_result = self._security_check("Researcher", research_trimmed, update)
             shared_memory["security_log"].append({"agent": "Researcher", **sec_result})
-        except Exception as e:
-            shared_memory["research"] = "Research unavailable."
-            update("⚠️ Researcher failed, continuing.")
 
-        # Small delay after researcher to let token rate limit reset
+        except Exception as e:
+            log_event("orchestrator", f"Parallel phase 1 error: {str(e)}")
+            shared_memory["plan"]     = shared_memory["plan"] or "No plan available."
+            shared_memory["research"] = shared_memory["research"] or "Research unavailable."
+            update("⚠️ Planner/Researcher had issues, continuing.")
+
+        # ── Step 3: SEQUENTIAL — Analyst ─────────────────────────────────────
+        # Needs both plan and research, so must run after Step 2
         update("🧠 Analyst: Analyzing your fit against the plan...")
-        time.sleep(15)
         try:
             analysis_raw = self.analyst.run(
                 job_description=job_description,
@@ -109,34 +118,35 @@ class Orchestrator:
         except Exception as e:
             return {"error": "Analyst agent failed. Please try again."}
 
-        # Step 5: Match Analyzer
-        update("📊 Match Analyzer: Breaking down requirement-by-requirement fit...")
+        # ── Step 4: PARALLEL — Match Analyzer + Writer ────────────────────────
+        # Both only need Analyst output — run simultaneously
+        update("📊 Match Analyzer + ✍️ Writer: Running in parallel...")
         try:
-            shared_memory["match_data"] = self.match_analyzer.run(
-                job_description=job_description,
-                user_background=user_background,
-                analysis=shared_memory["analysis"]
-            )
-        except Exception as e:
-            shared_memory["match_data"] = {}
-            update("⚠️ Match analyzer failed.")
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                future_match = pool.submit(self.match_analyzer.run,
+                                           job_description=job_description,
+                                           user_background=user_background,
+                                           analysis=shared_memory["analysis"])
+                future_draft = pool.submit(self.writer.run,
+                                           job_description=job_description,
+                                           user_background=user_background,
+                                           research=shared_memory["research"],
+                                           analysis=shared_memory["analysis"],
+                                           plan=shared_memory["plan"])
+                shared_memory["match_data"] = future_match.result()
+                draft_raw = future_draft.result()
 
-        # Step 6: Writer
-        update("✍️ Writer: Drafting your cover letter and resume bullets...")
-        try:
-            draft_raw = self.writer.run(
-                job_description=job_description,
-                user_background=user_background,
-                research=shared_memory["research"],
-                analysis=shared_memory["analysis"],
-                plan=shared_memory["plan"]
-            )
             shared_memory["draft"], sec_result = self._security_check("Writer", draft_raw, update)
             shared_memory["security_log"].append({"agent": "Writer", **sec_result})
-        except Exception as e:
-            return {"error": "Writer agent failed. Please try again."}
 
-        # Step 7: Critic loop
+        except Exception as e:
+            log_event("orchestrator", f"Parallel phase 2 error: {str(e)}")
+            if not shared_memory.get("draft"):
+                return {"error": "Writer agent failed. Please try again."}
+            shared_memory["match_data"] = shared_memory.get("match_data") or {}
+            update("⚠️ Match Analyzer/Writer had issues.")
+
+        # ── Step 5: SEQUENTIAL — Critic ↔ Writer loop ─────────────────────────
         for i in range(self.MAX_CRITIQUE_LOOPS):
             update(f"🔎 Critic: Reviewing draft (pass {i+1}/{self.MAX_CRITIQUE_LOOPS})...")
             try:
@@ -151,7 +161,7 @@ class Orchestrator:
                     update("✅ Critic approved the output!")
                     break
                 else:
-                    update(f"🔁 Critic requesting improvements...")
+                    update("🔁 Critic requesting improvements...")
                     draft_raw = self.writer.run(
                         job_description=job_description,
                         user_background=user_background,
@@ -168,26 +178,25 @@ class Orchestrator:
 
         shared_memory["final_output"] = shared_memory["draft"]
 
-        # Step 8: Interview Prep
-        update("🎯 Interview Prep: Generating likely questions...")
+        # ── Step 6: PARALLEL — Interview Prep + Email Agent ───────────────────
+        # End-cap agents — neither depends on the other
+        update("🎯 Interview Prep + 📧 Email Agent: Running in parallel...")
         try:
-            shared_memory["interview_prep"] = self.interview_prep.run(
-                job_description=job_description,
-                user_background=user_background,
-                analysis=shared_memory["analysis"]
-            )
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                future_interview = pool.submit(self.interview_prep.run,
+                                               job_description=job_description,
+                                               user_background=user_background,
+                                               analysis=shared_memory["analysis"])
+                future_email     = pool.submit(self.email_draft.run,
+                                               job_description=job_description,
+                                               user_background=user_background)
+                shared_memory["interview_prep"] = future_interview.result()
+                shared_memory["email_draft"]    = future_email.result()
         except Exception as e:
-            shared_memory["interview_prep"] = "Interview prep unavailable."
-
-        # Step 9: Email Draft
-        update("📧 Email Agent: Drafting your follow-up email...")
-        try:
-            shared_memory["email_draft"] = self.email_draft.run(
-                job_description=job_description,
-                user_background=user_background
-            )
-        except Exception as e:
-            shared_memory["email_draft"] = "Email draft unavailable."
+            log_event("orchestrator", f"Parallel phase 3 error: {str(e)}")
+            shared_memory["interview_prep"] = shared_memory.get("interview_prep") or "Interview prep unavailable."
+            shared_memory["email_draft"]    = shared_memory.get("email_draft") or "Email draft unavailable."
+            update("⚠️ Interview Prep/Email had issues.")
 
         update("🎉 Pipeline complete!")
 
