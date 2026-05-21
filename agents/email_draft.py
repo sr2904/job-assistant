@@ -5,9 +5,12 @@ Generates a professional follow-up email after applying.
 Scope: EMAIL DRAFTING ONLY.
 """
 
-from google import genai
+import anthropic
 import os
 from utils.logger import log_event
+
+client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
 
 SYSTEM_PROMPT = """You are an Email Draft Agent. Your ONLY job is to write a professional 
 follow-up email for a job application.
