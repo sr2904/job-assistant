@@ -1,6 +1,6 @@
 # AI Job Application Assistant
 
-A multi-agent system built for the Wipro Junior FDE pre-screening assignment. Paste a job description and your background — the system handles the rest.
+A multi-agent system. Paste a job description and your background — the system handles the rest.
 
 **Live demo:** https://job-assistant-shashwat.streamlit.app
 **Author:** Shashwat Rao Balaji — Arizona State University, CS '26
