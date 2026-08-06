@@ -1,6 +1,4 @@
-"""
-Interview Prep Agent - Claude version
-"""
+
 import anthropic
 import os
 from utils.logger import log_event
