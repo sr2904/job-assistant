@@ -1,7 +1,4 @@
-"""
-Orchestrator - Full 9-Agent Pipeline
-Optimized with parallelism + small pauses between phases to respect rate limits
-"""
+
 import time
 from concurrent.futures import ThreadPoolExecutor
 from agents.planner import PlannerAgent
