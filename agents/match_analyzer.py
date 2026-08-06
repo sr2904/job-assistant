@@ -1,6 +1,4 @@
-"""
-Match Analyzer Agent - Claude version with trimmed inputs
-"""
+
 import anthropic
 import os
 import json
