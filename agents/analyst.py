@@ -1,6 +1,4 @@
-"""
-Analyst Agent - Claude version with trimmed inputs
-"""
+
 import anthropic
 import os
 from utils.logger import log_event
