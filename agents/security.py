@@ -1,6 +1,4 @@
-"""
-Security Agent - Claude version (fixed)
-"""
+
 import anthropic
 import os
 import json
